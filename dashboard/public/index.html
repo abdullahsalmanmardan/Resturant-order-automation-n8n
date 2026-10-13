@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orders</title>
+<style>
+  :root {
+    --bg: #f4f2ee; --card: #ffffff; --ink: #1f1d1a; --muted: #6f6a62; --line: #e2ddd4;
+    --accent: #0f7a4f; --accent-ink: #ffffff; --warn: #b3261e; --new: #fff4d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161513; --card: #22201d; --ink: #f0ece4; --muted: #a39d92; --line: #36332e;
+      --accent: #2fa870; --accent-ink: #0c1a13; --warn: #f2867f; --new: #3a3220;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 16px;
+           border-bottom: 1px solid var(--line); background: var(--card); position: sticky; top: 0; z-index: 1; }
+  header h1 { font-size: 18px; margin: 0; flex: 1 1 auto; }
+  nav button, .btn { font: inherit; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line);
+                     background: transparent; color: var(--ink); cursor: pointer; }
+  nav button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .btn.danger { color: var(--warn); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  #banner { display: none; padding: 8px 16px; background: var(--warn); color: #fff; }
+  #board { display: grid; grid-template-columns: repeat(4, minmax(240px, 1fr)); gap: 12px; padding: 16px;
+           overflow-x: auto; align-items: start; }
+  @media (max-width: 720px) { #board { grid-template-columns: 1fr; } }
+  .col h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 10px; }
+  .card.is-new { background: var(--new); }
+  .card.is-closed { opacity: .65; }
+  .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .num { font-size: 18px; font-weight: 700; }
+  .tag { font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); white-space: nowrap; }
+  .meta { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  ul.items { margin: 8px 0; padding: 0; list-style: none; }
+  ul.items li { padding: 3px 0; border-top: 1px dashed var(--line); }
+  ul.items .note { color: var(--warn); font-size: 13px; display: block; }
+  .total { font-weight: 700; margin: 6px 0; }
+  .actions { display: flex; gap: 8px; margin-top: 8px; }
+  .actions .primary { flex: 1; }
+  .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+  #menu { display: none; padding: 16px; max-width: 720px; }
+  #menu label { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px;
+                background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; }
+  #menu h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 18px 0 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Orders</h1>
+  <nav>
+    <button id="tab-orders" aria-pressed="true">Orders</button>
+    <button id="tab-menu" aria-pressed="false">Menu</button>
+  </nav>
+</header>
+<div id="banner"></div>
+<main id="board"></main>
+<main id="menu"></main>
+
+<script>
+const COLUMNS = [
+  { title: 'New', statuses: ['new'] },
+  { title: 'In the kitchen', statuses: ['accepted', 'preparing'] },
+  { title: 'Ready / on the way', statuses: ['ready', 'out_for_delivery'] },
+  { title: 'Closed (last 12 h)', statuses: ['completed', 'cancelled'] },
+];
+const ACTION_LABEL = {
+  accepted: 'Accept', preparing: 'Start preparing', ready: 'Mark ready',
+  out_for_delivery: 'Out for delivery', completed: 'Complete', cancelled: 'Cancel',
+};
+const STATUS_LABEL = {
+  new: 'New', accepted: 'Accepted', preparing: 'Preparing', ready: 'Ready',
+  out_for_delivery: 'Out for delivery', completed: 'Completed', cancelled: 'Cancelled',
+};
+
+const board = document.getElementById('board');
+const menuEl = document.getElementById('menu');
+const banner = document.getElementById('banner');
+let currency = '';
+let seenNewIds = null;
+
+function el(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children.filter((c) => c !== null && c !== ''));
+  return node;
+}
+const money = (n) => `${currency} ${Number(n).toLocaleString()}`;
+const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+function showBanner(text) {
+  banner.textContent = text;
+  banner.style.display = text ? 'block' : 'none';
+}
+
+async function api(path, body) {
+  const res = await fetch(path, body === undefined ? {} : {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+function beep() {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    osc.connect(ctx.destination);
+    osc.frequency.value = 880;
+    osc.start();
+    osc.stop(ctx.currentTime + 0.25);
+  } catch { /* browsers block audio until the page has been clicked */ }
+}
+
+async function setStatus(order, status, button) {
+  if (status === 'cancelled' && !confirm(`Cancel order #${order.id}? The customer will be told.`)) return;
+  button.disabled = true;
+  try {
+    const result = await api(`/api/orders/${order.id}/status`, { status });
+    showBanner(result.notified ? '' : `Order #${order.id} updated, but the WhatsApp message to the customer was NOT sent.`);
+  } catch (err) {
+    showBanner(err.message);
+  }
+  loadOrders();
+}
+
+function orderCard(order) {
+  const closed = order.next.length === 0;
+  const [primary, ...rest] = order.next;
+  return el('div', { className: `card${order.status === 'new' ? ' is-new' : ''}${closed ? ' is-closed' : ''}` },
+    el('div', { className: 'top' },
+      el('span', { className: 'num' }, `#${order.id}`),
+      el('span', { className: 'tag' }, `${order.order_type === 'delivery' ? 'Delivery' : 'Pickup'} · ${STATUS_LABEL[order.status]}`)),
+    el('div', { className: 'meta' }, `${clock(order.created_at)} · ${order.customer_name || 'Customer'} · +${order.customer_phone}`),
+    order.address ? el('div', { className: 'meta' }, order.address) : null,
+    el('ul', { className: 'items' }, ...order.items.map((item) =>
+      el('li', {}, `${item.quantity} × ${item.name}`,
+        item.notes ? el('span', { className: 'note' }, item.notes) : null))),
+    order.notes ? el('div', { className: 'meta' }, `Note: ${order.notes}`) : null,
+    el('div', { className: 'total' }, `Total ${money(order.total)}`,
+      Number(order.delivery_fee) ? ` (incl. ${money(order.delivery_fee)} delivery)` : ''),
+    closed ? null : el('div', { className: 'actions' },
+      el('button', { className: 'btn primary', onclick: (e) => setStatus(order, primary, e.target) }, ACTION_LABEL[primary]),
+      ...rest.map((status) =>
+        el('button', { className: 'btn danger', onclick: (e) => setStatus(order, status, e.target) }, ACTION_LABEL[status]))));
+}
+
+async function loadOrders() {
+  let orders;
+  try {
+    orders = await api('/api/orders');
+  } catch (err) {
+    showBanner(`Cannot load orders: ${err.message}`);
+    return;
+  }
+  const newIds = new Set(orders.filter((o) => o.status === 'new').map((o) => o.id));
+  if (seenNewIds && [...newIds].some((id) => !seenNewIds.has(id))) beep();
+  seenNewIds = newIds;
+  document.title = newIds.size ? `(${newIds.size}) Orders` : 'Orders';
+
+  board.replaceChildren(...COLUMNS.map((column) => {
+    const cards = orders.filter((o) => column.statuses.includes(o.status));
+    if (column.statuses.includes('completed')) cards.reverse();
+    return el('section', { className: 'col' },
+      el('h2', {}, `${column.title} (${cards.length})`),
+      ...(cards.length ? cards.map(orderCard) : [el('div', { className: 'empty' }, 'Nothing here')]));
+  }));
+}
+
+async function loadMenu() {
+  let data;
+  try {
+    data = await api('/api/menu');
+  } catch (err) {
+    showBanner(`Cannot load menu: ${err.message}`);
+    return;
+  }
+  currency = data.restaurant.currency;
+  document.getElementById('title').textContent = `${data.restaurant.name} · Orders`;
+
+  const toggle = (checked, onchange) => el('input', { type: 'checkbox', checked, onchange });
+  const save = (path, body) => api(path, body).catch((err) => { showBanner(err.message); loadMenu(); });
+  const nodes = [
+    el('label', {}, el('strong', {}, 'Accepting orders on WhatsApp'),
+      toggle(data.restaurant.accepting_orders, (e) => save('/api/restaurant/accepting', { accepting: e.target.checked }))),
+  ];
+  let category = null;
+  for (const item of data.items) {
+    if (item.category !== category) nodes.push(el('h2', {}, category = item.category));
+    nodes.push(el('label', {}, el('span', {}, `${item.name} · ${money(item.price)}`),
+      toggle(item.available, (e) => save(`/api/menu/${item.id}/available`, { available: e.target.checked }))));
+  }
+  menuEl.replaceChildren(el('p', { className: 'meta' }, 'Untick an item when it is sold out; the bot stops offering it immediately.'), ...nodes);
+}
+
+function showTab(name) {
+  board.style.display = name === 'orders' ? 'grid' : 'none';
+  menuEl.style.display = name === 'menu' ? 'block' : 'none';
+  document.getElementById('tab-orders').setAttribute('aria-pressed', name === 'orders');
+  document.getElementById('tab-menu').setAttribute('aria-pressed', name === 'menu');
+  if (name === 'menu') loadMenu();
+}
+document.getElementById('tab-orders').onclick = () => showTab('orders');
+document.getElementById('tab-menu').onclick = () => showTab('menu');
+
+loadMenu().then(loadOrders);
+setInterval(loadOrders, 5000);
+</script>
+</body>
+</html>
