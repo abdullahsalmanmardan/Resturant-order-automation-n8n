@@ -1,0 +1,186 @@
+{
+  "id": "waOrderStatus001",
+  "name": "Order Status Notifications",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Order Status Notifications\nThe kitchen dashboard calls this webhook whenever staff change an order status. The customer gets a WhatsApp message in the language they ordered in.\n\nEdit the wording in **Build Message**.",
+        "width": 620,
+        "height": 180
+      },
+      "id": "c2e60a70-69fb-45a5-afa7-b739128b08a5",
+      "name": "Note: overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -520,
+        -240
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "order-status",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "c7d0ee4a-b719-477d-a60a-1c97016a4724",
+      "name": "Dashboard Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        0
+      ],
+      "webhookId": "4a6b0192-2493-4bea-a7e4-ed7f4de75ca8",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "credNotifyHdr0001",
+          "name": "Dashboard notify secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Which status changes the customer hears about, in their own language.\n// Return an empty message to stay silent for a status.\nconst { phone, phone_number_id, order_number, order_type, language, status } = $input.first().json.body;\nconst n = '#' + order_number;\n\nconst templates = {\n  accepted: {\n    en: `✅ Order ${n} is confirmed! The kitchen has started on it.`,\n    roman_ur: `✅ Aap ka order ${n} confirm ho gaya hai. Kitchen ne tayyari shuru kar di hai.`,\n    ur: `✅ آپ کا آرڈر ${n} کنفرم ہو گیا ہے۔ کچن نے تیاری شروع کر دی ہے۔`,\n  },\n  // Delivery customers get the \"on its way\" message instead.\n  ready: order_type === 'pickup' ? {\n    en: `🛍️ Order ${n} is ready for pickup.`,\n    roman_ur: `🛍️ Aap ka order ${n} tayyar hai. Aap aa kar le sakte hain.`,\n    ur: `🛍️ آپ کا آرڈر ${n} تیار ہے۔ آپ آ کر لے سکتے ہیں۔`,\n  } : null,\n  out_for_delivery: {\n    en: `🛵 Order ${n} is on its way!`,\n    roman_ur: `🛵 Aap ka order ${n} rawana ho gaya hai!`,\n    ur: `🛵 آپ کا آرڈر ${n} روانہ ہو گیا ہے!`,\n  },\n  cancelled: {\n    en: `❌ Sorry, order ${n} has been cancelled by the restaurant. Message us here if you have any questions.`,\n    roman_ur: `❌ Maazrat, aap ka order ${n} restaurant ki taraf se cancel kar diya gaya hai. Koi sawal ho to yahan message karein.`,\n    ur: `❌ معذرت، آپ کا آرڈر ${n} ریسٹورنٹ کی طرف سے منسوخ کر دیا گیا ہے۔ کوئی سوال ہو تو یہاں میسج کریں۔`,\n  },\n};\n\nconst template = templates[status];\nconst message = template ? (template[language] ?? template.en) : '';\nreturn [{ json: { phone, phone_number_id, order_number, status, message } }];"
+      },
+      "id": "f868daa3-bd83-476e-ad38-259702cff905",
+      "name": "Build Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7f743024-30bb-4e3d-adde-2b4805757cd7",
+              "leftValue": "={{ $json.message }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "99accc67-6881-4fe5-ab7e-f1d31d8f0e5a",
+      "name": "Has Message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -40,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "={{ $('Build Message').item.json.phone_number_id }}",
+        "recipientPhoneNumber": "={{ $('Build Message').item.json.phone }}",
+        "textBody": "={{ $('Build Message').item.json.message }}",
+        "additionalFields": {}
+      },
+      "id": "f52a8cc4-8873-4e6f-a531-ac83782796da",
+      "name": "Send Update",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        180,
+        -20
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "credWaSend0000001",
+          "name": "WhatsApp Cloud API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ef6218f4-4bcf-42ac-abbc-75cf4a99ba3f",
+              "name": "sent",
+              "value": false,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "826868a6-c35c-451e-a9d5-cbf6052d8078",
+      "name": "No Message For This Status",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        180,
+        140
+      ]
+    }
+  ],
+  "connections": {
+    "Dashboard Webhook": {
+      "main": [
+        [
+          {
+            "node": "Build Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Message": {
+      "main": [
+        [
+          {
+            "node": "Has Message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Message?": {
+      "main": [
+        [
+          {
+            "node": "Send Update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Message For This Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "active": false,
+  "pinData": {}
+}

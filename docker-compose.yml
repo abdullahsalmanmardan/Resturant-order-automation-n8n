@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: restaurant
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: restaurant
+      TZ: ${TIMEZONE:-Asia/Karachi}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U restaurant -d restaurant"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.43.4
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${N8N_HOST_PORT:-5678}:5678"
+    # .env is passed through so scripts/import-into-n8n.sh can build the credentials from it.
+    env_file: .env
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: restaurant
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?set N8N_ENCRYPTION_KEY in .env}
+      # Public HTTPS address Meta sends WhatsApp messages to (your tunnel or domain).
+      WEBHOOK_URL: ${PUBLIC_URL:-http://localhost:5678}
+      N8N_PROXY_HOPS: 1
+      GENERIC_TIMEZONE: ${TIMEZONE:-Asia/Karachi}
+      TZ: ${TIMEZONE:-Asia/Karachi}
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: 336
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./workflows:/import/workflows:ro
+      - ./scripts/import-into-n8n.sh:/import/import-into-n8n.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  dashboard:
+    build: ./dashboard
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${DASHBOARD_HOST_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgres://restaurant:${POSTGRES_PASSWORD}@postgres:5432/restaurant
+      DASHBOARD_USER: ${DASHBOARD_USER:-admin}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:?set DASHBOARD_PASSWORD in .env}
+      N8N_NOTIFY_URL: http://n8n:5678/webhook/order-status
+      NOTIFY_SECRET: ${NOTIFY_SECRET:?set NOTIFY_SECRET in .env}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      TZ: ${TIMEZONE:-Asia/Karachi}
+
+volumes:
+  postgres_data:
+  n8n_data:

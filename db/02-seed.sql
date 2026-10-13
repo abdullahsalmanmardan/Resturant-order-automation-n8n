@@ -1,11 +1,12 @@
 -- Sample data so the bot works out of the box. Replace with the real restaurant's details
 -- (edit here before the first `docker compose up`, or change the rows later with SQL).
 
-INSERT INTO restaurant (name, currency, delivery_fee, min_order, opening_hours, delivery_areas, address)
+INSERT INTO restaurant (name, currency, delivery_fee, min_order, opening_hours, delivery_areas, address, phone)
 VALUES ('Sample Restaurant', 'Rs', 150, 500,
         'Every day, 12:00 pm to 12:00 am',
         'Within about 5 km of the restaurant',
-        'Main Boulevard, Your City');
+        'Main Boulevard, Your City',
+        '0300-0000000');
 
 INSERT INTO menu_items (category, name, description, price, sort_order) VALUES
     ('Starters', 'Chicken Samosa (2 pcs)',  'Crispy pastry, spiced chicken filling',       180, 10),

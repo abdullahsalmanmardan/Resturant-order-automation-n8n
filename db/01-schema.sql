@@ -13,6 +13,8 @@ CREATE TABLE restaurant (
     opening_hours  text NOT NULL DEFAULT '',
     delivery_areas text NOT NULL DEFAULT '',
     address        text NOT NULL DEFAULT '',
+    phone          text NOT NULL DEFAULT '',  -- number customers can call for complaints or changes
+    payment_info   text NOT NULL DEFAULT 'Cash on delivery or at pickup',
     accepting_orders boolean NOT NULL DEFAULT true
 );
 
@@ -63,10 +65,10 @@ CREATE INDEX order_items_order_idx ON order_items (order_id);
 CREATE FUNCTION bot_context() RETURNS text
 LANGUAGE sql STABLE AS $$
     SELECT format(
-        E'Restaurant: %s\nAddress: %s\nOpening hours: %s\nDelivery areas: %s\n'
-        'Delivery fee: %s %s\nMinimum order (before delivery fee): %s %s\n'
+        E'Restaurant: %s\nAddress: %s\nPhone for calls: %s\nOpening hours: %s\nDelivery areas: %s\n'
+        'Payment: %s\nDelivery fee: %s %s\nMinimum order (before delivery fee): %s %s\n'
         'Currently accepting orders: %s\n\nMENU (only these items exist):\n%s',
-        r.name, r.address, r.opening_hours, r.delivery_areas,
+        r.name, r.address, r.phone, r.opening_hours, r.delivery_areas, r.payment_info,
         r.currency, trim_scale(r.delivery_fee), r.currency, trim_scale(r.min_order),
         CASE WHEN r.accepting_orders THEN 'yes' ELSE 'NO' END,
         coalesce((
